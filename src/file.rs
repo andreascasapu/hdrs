@@ -3,7 +3,7 @@ use std::ptr;
 
 use hdfs_sys::*;
 use libc::c_void;
-use log::debug;
+use log::{debug, warn};
 
 use crate::Client;
 
@@ -43,11 +43,21 @@ unsafe impl Sync for File {}
 
 impl Drop for File {
     fn drop(&mut self) {
+        if self.f.is_null() {
+            return;
+        }
         unsafe {
-            debug!("file has been closed");
-            let _ = hdfsCloseFile(self.fs, self.f);
+            let error_code = hdfsCloseFile(self.fs, self.f);
             // hdfsCloseFile will free self.f no matter success or failed.
             self.f = ptr::null_mut();
+            match error_code {
+                0 => {
+                    debug!("file has been closed");
+                }
+                _ => {
+                    warn!("file failed to be closed")
+                }
+            }
         }
     }
 }
@@ -98,6 +108,18 @@ impl File {
         }
 
         Ok(n as usize)
+    }
+
+    pub fn try_close(mut self) -> Result<()> {
+        let error_code = unsafe { hdfsCloseFile(self.fs, self.f) };
+        // hdfsCloseFile will free self.f no matter success or failed.
+        self.f = ptr::null_mut();
+
+        if error_code == 0 {
+            Ok(())
+        } else {
+            Err(Error::last_os_error())
+        }
     }
 }
 
